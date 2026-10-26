@@ -5,6 +5,16 @@ def highest(severities): return max(severities,key=lambda s:RANK[s],default='nor
 
 class Rules:
     def __init__(self,incidents,minimum): self.incidents=incidents; self.minimum=minimum; self.counts={}
+    def hazards(self,camera_id,detections,simulated=False):
+        seen=set()
+        for label in ('fire','smoke'):
+            evidence=[d for d in detections if d['label']==label]
+            key=('hazard',label)
+            if evidence:
+                seen.add(key); self.counts[key]=self.counts.get(key,0)+1
+                if self.counts[key]>=self.minimum:
+                    self.incidents.report(camera_id,None,None,label+'_hazard','critical',label.capitalize()+' detected; urgent operator verification required',{'confidence':max(d['confidence'] for d in evidence),'consecutive_observations':self.counts[key]},simulated)
+            else: self.counts.pop(key,None)
     def evaluate(self,camera_id,zones,people,ppe,simulated):
         seen=set()
         for z in zones:
@@ -13,11 +23,13 @@ class Rules:
                 a,b,c,d=p['bbox']
                 if not inside(((a+c)/2,d),z.polygon): continue
                 categories=[]
-                if z.type in ('danger','restricted'): categories.append(('restricted_entry','Tracked person observed inside a restricted zone',{}))
+                if z.type in ('danger','restricted'):
+                    category='danger_entry' if z.type=='danger' else 'restricted_entry'
+                    categories.append((category,f'Tracked person observed inside {z.type} zone: {z.name}',{}))
                 missing=[item for item in z.required_ppe if ppe[p['track_id']][item]=='not_detected']
                 if missing: categories.append(('potential_missing_ppe','Required PPE not detected persistently; operator review needed',{'not_detected':missing}))
                 for category,message,detail in categories:
                     key=(z.id,p['track_id'],category); seen.add(key); self.counts[key]=self.counts.get(key,0)+1
                     if self.counts[key]>=self.minimum:
                         self.incidents.report(camera_id,z.id,p['track_id'],category,z.severity,message,{'confidence':p['confidence'],'uncertainty':'Detection evidence is not proof of absence','consecutive_observations':self.counts[key],**detail},simulated)
-        self.counts={k:v for k,v in self.counts.items() if k in seen}
+        self.counts={k:v for k,v in self.counts.items() if k in seen or k[0]=='hazard'}

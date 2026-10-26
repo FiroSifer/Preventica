@@ -1,0 +1,23 @@
+[
+  {
+    "kind": "people",
+    "file": "yolo26n.pt",
+    "download_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26n.pt",
+    "source": "https://github.com/ultralytics/assets",
+    "sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef"
+  },
+  {
+    "kind": "ppe",
+    "file": "ppe-yolo11n.pt",
+    "download_url": "https://raw.githubusercontent.com/harshflodata/ppe-detection/main/models/finetuned/best_ppe_yolo11n.pt",
+    "source": "https://github.com/harshflodata/ppe-detection",
+    "sha256": "df29a7f7490699a3aefad7f18fd7cd8f5d9243272473801d3140aea27146f3ec"
+  },
+  {
+    "kind": "fire",
+    "file": "fire-yolov8s.pt",
+    "download_url": "https://raw.githubusercontent.com/Yug-doshi/Fire-and-Smoke-Detection-main/main/runs/detect/train/weights/best.pt",
+    "source": "https://github.com/Yug-doshi/Fire-and-Smoke-Detection-main",
+    "sha256": "22091935e9dbd7bd02a6a923f77875db599bafc0c784fe624de3c387925dba15"
+  }
+]

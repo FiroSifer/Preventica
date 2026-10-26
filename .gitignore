@@ -6,6 +6,9 @@ data/*
 !data/.gitkeep
 models/*
 !models/.gitkeep
+!models/catalog.json
 *.pt
 *.onnx
 *.db*
+
+work/

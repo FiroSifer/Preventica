@@ -1,135 +1,131 @@
-# SafeSense AI
+# SafeSense AI — Safety, in sight.
 
-Local-first industrial camera monitoring and **operator decision support**, built with FastAPI, OpenCV, SQLite/SQLAlchemy, and a vanilla JavaScript dashboard. It is not a certified safety system and does not guarantee detection of unsafe conditions.
+A local industrial safety monitoring application built with FastAPI, SQLite, OpenCV and Ultralytics. This release adds the violet glass interface, login, an adaptive camera wall, camera connection validation, a polygon editor, reports, incident history, and three configured pretrained detectors.
 
-## Start on Windows (Python 3.11+)
+## Start
 
-From the repository root, in PowerShell:
+Python **3.11 or newer** is required. Unzip the entire application into a writable folder.
 
-```powershell
-py -3.11 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-Copy-Item .env.example .env
-.\.venv\Scripts\python.exe -m uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8000
-```
+- **Windows:** double-click `Start-SafeSense.bat`.
+- **Linux / macOS:** run `python3 run.py` from the extracted folder.
 
-If your installed Python is newer, replace `py -3.11` with `py -3.12` (or your installed version). No PowerShell activation or execution-policy changes are required. Open `http://127.0.0.1:8000` on your own computer. API docs: `/docs`; health: `/api/health`. SQLite and its parent directory initialize automatically. Stop with Ctrl+C. Run a **single Uvicorn worker**, without reload during camera operation: multiple workers would open cameras repeatedly.
+The launcher creates `.venv`, installs CPU dependencies on its first run, copies `.env.example` to `.env` if needed, and opens **http://127.0.0.1:8000**. Internet is needed for the first dependency installation. The downloadable release includes the three model files. When running from a Git checkout, missing weights are downloaded and checked against `models/catalog.json` automatically.
 
-Linux/macOS:
+Sign in with **admin / admin**. Change `SAFESENSE_ADMIN_NAME` and `SAFESENSE_ADMIN_PASSWORD` in `.env` to change the credentials, then restart. Sessions expire after eight hours by default; signing out invalidates the session on the server. Restarting also invalidates sessions.
+
+Stop with Ctrl+C in the terminal. If the port is busy, run `python run.py --port 8002`. `--no-browser` suppresses opening a browser. Use one server process: multiple workers would open the same camera repeatedly.
+
+### Manual setup
 
 ```sh
 python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
-cp .env.example .env
-.venv/bin/python -m uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8000
+.venv/bin/python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+.venv/bin/python -m pip install -r requirements-ai.txt
+.venv/bin/python scripts/setup_models.py
+.venv/bin/python run.py --inside
 ```
 
-No Node dependencies or frontend build step are required. Node 18+ is optional for frontend geometry tests. Internet is needed to install dependencies and manually obtain optional weights; ordinary operation is local.
+On Windows use `py -3 -m venv .venv`, then `.venv\Scripts\python.exe` in place of `.venv/bin/python`.
 
-## First demo / acceptance checklist
+## Exhibition walkthrough
 
-1. Start the server. Dashboard initially has zero cameras and explicitly reports no model.
-2. **Add camera** → name `Demo workshop`, location of your choice, source type **Demo**, source `synthetic`. Live frames change over time and are labeled **SIMULATED VIDEO / DETECTIONS**. Demo detections are isolated to demo cameras; real feeds never receive simulated detections.
-3. Click the camera. Select **Draw zone**, click four points around most of the frame, then **Finish polygon**. Name the zone, choose `restricted` or `danger`, severity `critical`, and optionally select `helmet`/`vest` in PPE requirements. Save.
-4. A synthetic person moves horizontally. When its bottom-center enters the polygon for the configured number of inference observations, incidents appear through the real engine, database, API, and WebSocket. Required helmet/vest are intentionally not detected in this scenario. Findings always say **SIMULATED**. Gloves/boots are unsupported by the demo and cannot generate missing-PPE findings.
-5. Review **Incidents**; filter severity, status, and camera. Acknowledge then resolve. Refresh/restart the application: cameras, zones, incident lifecycle, timestamps, and history persist. Current camera connection state is recomputed on restart.
-6. Reopen the camera, edit a zone. Drag a vertex; click an edge to insert; select a vertex then press Delete to remove (minimum three retained). Alt-drag to move the whole polygon. Cancel discards all unsaved edits. Save persists them. Repeat with multiple independent zones; delete one and verify others remain.
-7. Resize the browser: overlay coordinates follow the actual frame rectangle. Detail view takes the stream's real aspect ratio, with no letterboxing inside the editing surface. Dashboard tiles may letterbox video but do not accept editing coordinates.
-8. Add another Demo camera with source `offline`. It must display a black unavailable tile with **monitoring unknown**, never “safe”. Disabling a camera also displays unavailable. Changing demo source back to `synthetic` reconnects it.
-9. Toggle detection overlays, inspect current detections/PPE, edit source/name/location, disable/enable, and confirm removal. Camera deletion removes its zones but retains incidents with null deleted camera/zone references.
-10. Test a real device separately using the steps below. Camera hardware and model accuracy cannot be established from demo validation.
+1. Sign in. Choose **Try the exhibition** on the empty camera wall, or **System & models → Load exhibition cameras**. Six cameras and sample safety zones are created in the real SQLite database.
+2. The scenes are generated still images with changing timestamps and simulated moving detection tracks. Labels on each feed and every incident identify simulated evidence. These scenarios exercise the actual tracking, zone rules, alerts, database, reports and incident lifecycle. Their detections are independent of real inference.
+3. Move the pointer to the far left: the toolbar expands. It also works with keyboard focus or the menu button.
+4. Select a camera to open the enlarged live frame and report. The report shows name, location, timestamp, detected classes, people, assessment state, recent findings and existing zones.
+5. Select **Edit zones**. Enter a name and choose danger (red boundary) or restricted (purple boundary). Select warning/critical severity and optional required PPE. Click the image to place vertices; click the first point or **Finish polygon** to finish. Drag vertices to reshape, drag inside to move, or click an edge to insert a vertex. Select a point and press Delete to remove it, keeping at least three points. Confirm saves the zone. Repeat to create multiple zones.
+6. Select an existing zone in the report to edit it. Cancel or close the camera with × to discard the current draft. Previously confirmed zones remain saved. The backend independently rejects crossed, degenerate or out-of-frame polygons.
+7. **Delete cameras** enters removal mode. Each camera gets an × button. The custom confirmation supports Yes/No. Yes removes the camera and its zones from SQLite; historical incidents are retained with deleted references cleared. Use **Cancel** or click Delete cameras again to leave removal mode.
+8. Review **Incident history**. Filter by camera, severity or status; acknowledge and resolve findings. Camera outlines indicate the highest active finding. Findings remain active until resolved, even if the person has moved away.
+9. Toggle the sun/moon control for light/dark mode. The preference survives reload. **Focus mode** maximizes the camera wall; Escape returns to the standard view. **Sign out** returns to login.
 
-## Real cameras and credentials
+All camera tiles fit in the viewport. One camera fills the wall, three use one wide top tile and two bottom tiles, and other counts use balanced rows chosen for the available screen shape. The wall has no scrolling. More cameras mean smaller tiles; up to 64 registrations are accepted, but practical inference capacity depends on your computer.
 
-Add source type **USB**, source `0` (or `1` etc.). Windows must grant Python access to the camera; close software already using the device. USB indices 0–99 are supported.
+## Real cameras
 
-For an IP camera select **Network** and use an RTSP/RTSPS/HTTP/HTTPS stream supported by OpenCV's FFmpeg build. Local files and arbitrary protocols are intentionally not accepted. The computer must have access to the camera's LAN. Prefer environment references for **all** secret-bearing URLs:
+Choose **Add camera**, enter its name and location, then select a source:
+
+- **USB:** device number `0`, `1`, etc. Close other software using the device and grant Python camera permission in your OS settings.
+- **Network URL:** an RTSP/RTSPS/HTTP/HTTPS video stream OpenCV can decode. The application computer must be on the camera's network.
+- **Exhibition demo:** use `synthetic` for a simulated scene, or `offline` to test loss of coverage.
+
+An enabled real camera must return an actual frame before it is saved. Invalid devices, unreachable streams, missing environment variables and duplicate sources produce form errors. You can register a disabled source without probing it. Re-enabling or changing a source checks the connection again. After a device disconnects, its worker retries with backoff; the tile displays unavailable rather than a safety assessment.
+
+For URLs containing passwords or tokens, put the value in `.env`:
 
 ```dotenv
 MY_CAMERA_URL=rtsp://operator:YOUR_PASSWORD@192.168.1.20:554/stream
 ```
 
-Set the camera source to `env:MY_CAMERA_URL`. `.env` is loaded at startup; restart after editing it. API responses show only this reference, or `[configured URL]` for direct URLs. Direct URLs with embedded usernames/passwords are rejected; direct URLs (including query tokens) are saved in SQLite, so always use an environment reference for secrets. Blank source is invalid; leave `[configured URL]` unchanged in the UI to preserve a configured direct URL. Protect `.env` with OS file permissions. Do not share it or commit it. Capture failures expose generic errors, never URL exception strings. FFmpeg logging is suppressed to avoid leaking credentials. Credentials must be URL-encoded as necessary. Use trusted sources; a camera URL permits access from this machine to that network destination.
+Enter `env:MY_CAMERA_URL` in the camera form and restart after changing `.env`. Direct URLs with embedded usernames/passwords are rejected. Environment references and redacted direct URLs are returned to the browser; credential-bearing URLs should never be pasted into the UI. When editing a saved redacted URL, leave `[configured URL]` unchanged to keep it.
 
-Each enabled camera has one capture thread and one inference thread, independent of viewers. Frames are capped at 1280 pixels wide; only the latest frame/JPEG is retained. Network reads/open use 3-second timeouts and reconnect backoff of 1–15 seconds. USB driver behavior is OS-dependent; a stuck native driver may not honor shutdown promptly. Capture failure affects that camera only. Disabled feeds have no capture worker. No recording is performed.
+Camera registrations, zones, and incident history persist in `data/safesense.db`. No video recording is performed. Back up the database while the application is stopped. Keep `.env` private.
 
-## Optional real AI model
+## Models and actual capabilities
 
-The dashboard and real video work without AI. To enable real detections:
+Three pretrained `.pt` files are included in the downloadable application. Source checkouts keep weights out of Git; `python scripts/setup_models.py` downloads all three, verifies SHA-256 and runs a CPU inference check before updating `.env`. `--people-only` installs just the official person detector. Ordinary operation does not download models.
 
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements-ai.txt
-```
+| Detector | Weight file | Purpose / source |
+| --- | --- | --- |
+| YOLO26 nano | `models/yolo26n.pt` | People/common objects; [official Ultralytics weights](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26n.pt) |
+| Fine-tuned YOLO11 nano | `models/ppe-yolo11n.pt` | Helmet, vest, gloves, boots and other labels; [PPE model source](https://github.com/harshflodata/ppe-detection/tree/main/models/finetuned) |
+| Fine-tuned YOLOv8 small | `models/fire-yolov8s.pt` | Fire and smoke; [fire/smoke model source](https://github.com/Yug-doshi/Fire-and-Smoke-Detection-main/tree/main/runs/detect/train/weights) |
 
-Obtain **trusted** compatible Ultralytics detection `.pt` weights separately, save under `models/`, and configure `.env`:
+Exact URLs, provenance and hashes are in `models/catalog.json`. The model files remain subject to their respective authors' terms; Ultralytics is AGPL-3.0 or commercially licensed. This application does not claim the third-party models' published accuracy as measured on your cameras.
+
+You can replace any path in `.env` with your own trusted Ultralytics detection weights:
 
 ```dotenv
-SAFESENSE_MODEL_PATH=models/your-ppe-model.pt
+SAFESENSE_MODEL_PATH=models/yolo26n.pt
+SAFESENSE_PPE_MODEL_PATH=models/ppe-yolo11n.pt
+SAFESENSE_FIRE_MODEL_PATH=models/fire-yolov8s.pt
 SAFESENSE_CONFIDENCE=0.45
-SAFESENSE_IMAGE_SIZE=640
 SAFESENSE_DEVICE=cpu
-SAFESENSE_CAPTURE_FPS=12
 SAFESENSE_INFERENCE_FPS=3
 SAFESENSE_MIN_OBSERVATIONS=3
-SAFESENSE_COOLDOWN_SECONDS=30
-SAFESENSE_CLASS_MAP={"hardhat":"helmet","safety vest":"vest"}
+SAFESENSE_CLASS_MAP={}
 ```
 
-Restart the server. Settings/model and `/api/model/status` report actual class metadata, mapped labels, supported PPE classes, and load errors. The app checks a local file exists before loading and never deliberately requests downloadable model names at startup. Missing weights or optional Ultralytics installation degrades to live video without inference. `.pt` loading may deserialize executable Python: load only trusted weights. Only local `.pt` detection models are supported by this MVP. The optional integration is not an accuracy certification; check licensing of Ultralytics and model weights for your use case.
+Class mapping uses actual model metadata, with common positive label aliases (`hardhat` → `helmet`, `safety vest` → `vest`). Negative labels such as `no_helmet` are never mapped to positive PPE. PPE boxes are associated with a single compatible person using position/body region; low-resolution or cropped people yield insufficient evidence, and unsupported classes never produce absence alerts. Missing PPE means *not detected persistently*, not proof of absence.
 
-A standard COCO model can detect `person` but does **not** imply PPE capability. Only actual metadata labels or explicit mappings enable `helmet`, `vest`, `gloves`, `boots` evaluation. Map positive PPE labels only: never map `no-helmet` to `helmet`. Unsupported classes produce `unsupported`, not absence alerts. Low confidence detections are filtered by the configured threshold. Very small or cropped people yield `insufficient_evidence`. `not_detected` means no sufficient detection evidence, **not proof that a person is missing equipment**.
+Danger and restricted boundaries use a tracked person's bottom-center point. Distinct `danger_entry` and `restricted_entry` categories are generated after the configured number of consecutive observations. PPE requirements apply only inside their zone. Fire and smoke findings require repeated detections and generate critical alerts. Combined conditions produce separate findings so the report explains each condition. Restricted entry colors the tile purple, warnings yellow, and other critical findings red. An unavailable camera always displays unavailable.
 
-Tracking uses greedy bounding-box IoU with a two-second expiry. IDs are temporary, per camera, and can change under occlusion or motion. No faces or identities are inferred. PPE centers must lie horizontally inside a person box and within a vertical body band (helmet -15–35%, vest 20–75%, gloves 25–90%, boots 70–110%). Each PPE box is assigned to at most one person, preferring the smaller compatible person box. Crowds and occlusion remain ambiguous; glove/boot presence does not establish both hands/feet are protected.
+**Gas detection and human injury detection are not implemented.** Ordinary RGB footage cannot reliably identify invisible gases; calibrated sensor hardware/integration is required. Injury/fall assessment needs a separately validated temporal/pose system. No simulated result is presented as a real gas or injury detection.
 
-Rules use the tracked person's bottom-center point. Restricted/danger zones produce entry findings. Any enabled zone can specify PPE. Consecutive observations reset when evidence/zone presence disappears. With default 3 inference FPS and 3 observations, persistence is observation-based, not a guaranteed wall-clock duration. Open/acknowledged incidents de-duplicate by camera, zone, temporary track and category. Resolved incidents can recur after the cooldown if the finding persists; they are never removed automatically. Offline alerts are operational, separate from AI categories, and require operator resolution when coverage is restored. Camera display uses highest active severity, while an unavailable feed always remains visibly unavailable.
+The System & models screen shows the actual loaded classes, capabilities and failures. If weights are missing or cannot load, video remains available and the UI indicates the missing capability.
 
-Future activity recognition has a disabled extension interface only. Fall, fight, and immobility detection are **not implemented**.
+## Verification
 
-## Architecture
-
-```text
-app/config.py                 .env settings and repository-relative paths
-app/database/{models,store}   SQLAlchemy entities, SQLite WAL and foreign keys
-app/video/{sources,manager}   synthetic source, shared frames, capture/reconnect/inference workers
-app/ai/{detector,tracking}    optional YOLO, metadata mapping, IoU tracking and PPE association
-app/safety/                  geometry, rule persistence, incident de-duplication
-app/events.py                bounded live-event queues; slow clients drop oldest events
-app/main.py                  application factory, REST, MJPEG, WebSocket, frontend serving
-frontend/                    HTML/CSS, API client, dashboard, polygon editor and geometry modules
-tests/                       pytest integration/unit tests and Node geometry tests
-models/                      optional local model weights (ignored)
-data/                        runtime SQLite (ignored)
+```sh
+python -m pytest -q
+npm test
 ```
 
-Pipeline: source → latest frame → inference worker → tracking → exclusive PPE association → normalized zone rules → incident persistence → REST/WebSocket → dashboard. Inference is serialized across cameras sharing one model; frames are dropped rather than queued. Live events use `{type, timestamp, data}`; the UI reconnects and polls authoritative API snapshots every 1.5 seconds to recover from dropped events. MJPEG viewers share capture but each viewer uses extra JPEG bandwidth. MJPEG is a local MVP transport, not an optimized multi-site surveillance solution. No claimed benchmark or large-camera capacity: profile your hardware and start with a few feeds. Slower inference changes persistence latency.
+The Python suite checks authentication, connection-error handling, duplicate rejection, camera/zone CRUD, independent polygon validation, actual JPEG bytes, demo workers, tracking/PPE association, danger/restricted/hazard persistence, incident lifecycle, restart persistence, WebSocket events and origin protection. Node tests check normalized geometry.
 
-## APIs and storage
+`scripts/browser_smoke.py` exercises login, six simultaneous feeds and responsive controls, invalid USB rejection, polygon draw/save/move/type/cancel, X-to-discard, incident acknowledgement/resolution, persistent themes, camera deletion Yes/No, 3-camera layout, viewport fitting at desktop/tablet/mobile sizes, focus and logout. Run only against a **disposable database**: it removes demo cameras. It refuses to remove real cameras.
 
-OpenAPI at `/docs` documents requests. Health, camera CRUD/status/stream, camera-scoped zone creation/listing, zone PUT/delete, incidents list/detail/acknowledge/resolve, system/model status, and `/ws/events` are implemented. Camera PATCH merges supplied fields and validates the result; zone PUT replaces the zone. Incidents can filter `status`, `severity`, `camera_id`, with `limit` up to 500 (the UI shows the newest 500). Lifecycle conflicts return 409, missing records 404, invalid inputs 422. Source errors do not expose tracebacks. No permissive CORS is enabled: frontend is served from the same origin. Cross-origin browser writes and WebSockets are rejected; HTTP Host is restricted to local names.
+Example with a separate server:
 
-Schema version is the initial v1 SQLAlchemy schema. `create_all` initializes new databases; it does **not migrate existing schemas**. Before a future schema update, stop the application, back up `data/` securely, and supply/test a migration for that release before restarting. To reset a disposable demo database, stop the app and remove `data/safesense.db` plus associated `-wal`/`-shm` files; this destroys local history. Never do this to a database whose history you need. Move an existing database by setting `SAFESENSE_DATABASE` to an absolute path. SQLite data and backups may be sensitive even though video is not retained.
-
-## Tests
-
-```powershell
-.\.venv\Scripts\python.exe -m pytest -q
-node tests/geometry.test.js
+```sh
+SAFESENSE_DATABASE=/absolute/path/to/test.db python -m uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8001
+# In another terminal, after installing playwright:
+SAFESENSE_TEST_URL=http://127.0.0.1:8001 CHROMIUM_PATH=/path/to/chromium python scripts/browser_smoke.py
 ```
 
-Linux equivalent: `.venv/bin/python -m pytest -q`. The Python suite uses temporary databases and exercises actual worker frames, persistence across application instances, API validation/CRUD, polygon geometry, confidence/capability-aware PPE states, rules, lifecycle/de-duplication, and WebSocket publication. Node tests exercise normalized coordinates and polygon/edge geometry. The manual checklist above covers deployment acceptance. Optional YOLO weights and real camera hardware require separate validation; demo tests do not validate detector accuracy.
+The three pretrained models were loaded and executed on CPU. The integrated detector found people in the Ultralytics reference image. These checks establish software execution, not accuracy on your workplace or physical camera compatibility. USB/RTSP hardware must be checked on the computer used for the exhibition.
 
-## Troubleshooting and limitations
+## Operational details
 
-- **No image:** inspect camera detail error/status, enabled state, USB permissions, LAN connectivity and URL reference. Offline means coverage unknown, never safe. Camera warnings remain historical until resolved.
-- **No AI:** inspect Settings/model, install optional AI dependencies, provide trusted local weights, verify metadata mapping. Inference errors appear in camera detail. Invalid weights never imply safe footage.
-- **No incident:** check zone enabled/type, bottom-center position, PPE support, persistence count, cooldown, and existing open incident. Demo person must enter the polygon.
-- **Geometry rejected:** use distinct points inside the image, at least three vertices, nonzero area and no intersecting edges. Finish before saving. The backend validates independently of the editor.
-- **Device error:** CPU is the portable default. GPU use requires a compatible PyTorch/CUDA setup; it is not automatically provisioned.
-- **Performance:** lower capture/inference FPS or input size, reduce camera/viewer count. Inference is bounded but CPU and MJPEG bandwidth are finite.
-- **Future scaling:** authentication, TLS, audit actors, managed migrations, richer tracking and temporal evidence, access control, pagination, and a more efficient video transport are future work.
+- Localhost binding, HTTP-only SameSite session cookies, constant-time credential comparison, login throttling, same-origin write/WebSocket checks and local Host restrictions.
+- API docs at `/docs`; API calls and video require login. Health is public at `/api/health`.
+- Camera wall: 4 snapshot updates/second avoids HTTP/1 connection exhaustion with six or more cameras. Enlarged view: continuous shared MJPEG. Capture defaults to 12 FPS, inference to 3 FPS; actual speed depends on hardware.
+- One capture/inference worker per enabled camera; one shared model instance per detector with serialized inference. Latest frames replace old frames rather than growing a queue. Frame width is capped at 1280.
+- Network open/read timeouts are 3 seconds. Some USB drivers cannot be interrupted promptly; camera probing/shutdown timing depends on the OS driver.
+- Incident deduplication persists findings until acknowledged/resolved. Resolved findings can recur after the cooldown. Person IDs are temporary camera-local tracks, not identities.
+- SQLite foreign keys and WAL are enabled. Initial tables are created automatically; there is no destructive schema migration in this release.
+- This is local operator decision support. Real-world detections can be wrong or missed; review them before acting. Remote/public deployment requires additional hosting and network configuration. The app does not implement a hosted camera gateway.
 
-Bind to localhost as shown. Do not expose this MVP publicly: it has no user authentication or authorization. TrustedHost/origin checks are defense in depth, not authentication. Remote access requires a reviewed security design, authenticated TLS reverse proxy, explicit hosts/origins and network controls. Local users/processes can access the API. Do not retain video without a lawful privacy policy; follow applicable workplace monitoring laws. Predictions have false positives and false negatives and need trained human review.
+## Files
 
-### Optional Chromium smoke automation
-
-`scripts/browser_smoke.py` reproduces the tested browser flow, including MJPEG byte validation and polygon vertex editing. Run it against a **fresh disposable database** (it creates demo records and expects camera ID 1). In a separate terminal start the server with `SAFESENSE_DATABASE` set to a new temporary database path, install `playwright` in a testing environment, set `CHROMIUM_PATH` to your Chromium executable (default `/usr/bin/chromium`), then run `python scripts/browser_smoke.py`. `SAFESENSE_TEST_URL` optionally overrides the local test URL. Do not run this destructive smoke scenario against operational records. The script saves a dashboard screenshot in the OS temporary directory. Playwright is optional test tooling, not a runtime requirement.
+`frontend/` contains the interface and geometry editor. `app/` contains REST/auth/video, database, models, tracking and safety rules. `scripts/setup_models.py` handles explicit downloads; `models/catalog.json` records provenance. `run.py` and the platform launchers handle first-run setup. Generated exhibition imagery is in `frontend/assets/facility.png`.

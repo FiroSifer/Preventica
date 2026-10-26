@@ -14,9 +14,11 @@ from app.events import Events
 
 @pytest.fixture
 def system(tmp_path):
-    config=Settings(database=str(tmp_path/'test.db'),min_observations=2,inference_fps=10,capture_fps=15)
+    config=Settings(model_path='',ppe_model_path='',fire_model_path='',database=str(tmp_path/'test.db'),min_observations=2,inference_fps=10,capture_fps=15)
     app=create_app(config)
-    with TestClient(app) as client: yield client,app,config
+    with TestClient(app) as client:
+        assert client.post('/api/auth/login',json={'name':'admin','password':'admin'}).status_code==200
+        yield client,app,config
 
 def camera(c,source='synthetic',**kwargs):
     r=c.post('/api/cameras',json={'name':'Demo','location':'Lab','source_type':'demo','source':source,**kwargs}); assert r.status_code==201,r.text; return r.json()
@@ -87,6 +89,7 @@ def test_demo_pipeline_incident_lifecycle_and_persistence(system):
     assert c.post(f"/api/incidents/{i['id']}/acknowledge").status_code==409
     c.patch(f'/api/cameras/{id}',json={'enabled':False})
     with TestClient(create_app(s)) as second:
+        second.post('/api/auth/login',json={'name':'admin','password':'admin'})
         assert second.get(f"/api/incidents/{i['id']}").json()['status']=='resolved'
         assert len(second.get(f'/api/cameras/{id}/zones').json())==1
     assert c.get('/api/incidents?status=resolved').json()[0]['id']==i['id']
@@ -155,3 +158,61 @@ def test_camera_environment_references_from_dotenv(tmp_path,monkeypatch):
     monkeypatch.setenv('TEST_CAMERA_SOURCE','https://other.example/feed')
     assert settings.source_variable('TEST_CAMERA_SOURCE')=='https://other.example/feed'
     assert settings.source_variable('NONEXISTENT_CAMERA_VARIABLE')==''
+
+
+def test_authentication_enforced(tmp_path):
+    app=create_app(Settings(database=str(tmp_path/'auth.db'),model_path='',ppe_model_path='',fire_model_path=''))
+    with TestClient(app) as c:
+        assert c.get('/api/cameras').status_code==401
+        assert c.get('/api/cameras/1/stream').status_code==401
+        assert c.post('/api/auth/login',json={'name':'admin','password':'wrong'}).status_code==401
+        assert c.post('/api/auth/login',json={'name':'admin','password':'admin'}).status_code==200
+        assert c.get('/api/auth/session').json()['name']=='admin'
+        assert c.get('/api/cameras').status_code==200
+        token=c.cookies.get('safesense_session')
+        assert c.post('/api/auth/logout').status_code==200
+        assert c.get('/api/cameras').status_code==401
+        c.cookies.set('safesense_session',token)
+        assert c.get('/api/cameras').status_code==401
+        with pytest.raises(Exception):
+            with c.websocket_connect('/ws/events') as ws: ws.receive_json()
+
+
+def test_camera_connection_probe_failure_and_duplicates(system,monkeypatch):
+    c,a,s=system
+    monkeypatch.setattr('app.video.sources.probe',lambda *a:'USB camera not found or in use.')
+    body={'name':'USB','location':'Lab','source_type':'usb','source':'0'}
+    assert c.post('/api/cameras',json=body).status_code==422
+    assert c.get('/api/cameras').json()==[]
+    body['enabled']=False
+    assert c.post('/api/cameras',json=body).status_code==201
+    assert c.post('/api/cameras',json=body).status_code==409
+    assert c.post('/api/cameras',json={**body,'source':'1','name':'  '}).status_code==422
+
+
+def test_snapshot_has_real_jpeg_bytes(system):
+    c,a,s=system;id=camera(c)['id']
+    wait_for(lambda:a.state.manager.workers[id].jpeg)
+    response=c.get(f'/api/cameras/{id}/snapshot')
+    assert response.status_code==200
+    assert response.headers['content-type']=='image/jpeg'
+    assert response.content.startswith(b'\xff\xd8')
+    assert response.headers['cache-control']=='no-store'
+
+
+def test_danger_and_restricted_categories_and_hazard_persistence():
+    from types import SimpleNamespace
+    class Recorder:
+        def __init__(self):self.calls=[]
+        def report(self,*args):self.calls.append(args)
+    recorder=Recorder();rules=Rules(recorder,2)
+    zones=[SimpleNamespace(id=i,enabled=True,type=kind,name=kind,polygon=[[0,0],[1,0],[1,1],[0,1]],required_ppe=[],severity='critical') for i,kind in [(1,'danger'),(2,'restricted')]]
+    person_record={**person(),'track_id':1}
+    for _ in range(2):rules.evaluate(1,zones,[person_record],{1:{}},False)
+    assert {call[3] for call in recorder.calls}=={'danger_entry','restricted_entry'}
+    fire={'label':'fire','confidence':.92,'bbox':[.1,.1,.4,.4]}
+    rules.hazards(1,[fire]);assert len(recorder.calls)==2
+    rules.hazards(1,[])
+    rules.hazards(1,[fire]);assert len(recorder.calls)==2
+    rules.hazards(1,[fire]);assert recorder.calls[-1][3]=='fire_hazard'
+    assert recorder.calls[-1][6]['consecutive_observations']==2

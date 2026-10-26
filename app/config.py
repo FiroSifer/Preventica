@@ -10,6 +10,11 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix='SAFESENSE_', env_file=ROOT / '.env', extra='ignore')
     database: str = 'data/safesense.db'
     model_path: str = ''
+    ppe_model_path: str = ''
+    fire_model_path: str = ''
+    admin_name: str = 'admin'
+    admin_password: str = 'admin'
+    session_hours: int = Field(8, ge=1, le=72)
     confidence: float = Field(.45, ge=.05, le=1)
     image_size: int = Field(640, ge=160, le=2048)
     device: str = 'cpu'

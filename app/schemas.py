@@ -12,6 +12,8 @@ class CameraInput(BaseModel):
     enabled: bool = True
     @model_validator(mode='after')
     def valid(self):
+        self.name=self.name.strip(); self.location=self.location.strip(); self.source=self.source.strip()
+        if not self.name: raise ValueError('Camera name cannot be empty')
         if self.source_type=='usb' and (not self.source.isdigit() or int(self.source)>99):
             raise ValueError('USB source must be an index from 0 to 99')
         if self.source_type=='demo' and self.source not in ('synthetic','offline'):

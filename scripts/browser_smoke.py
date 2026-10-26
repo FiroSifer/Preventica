@@ -1,32 +1,112 @@
-from playwright.sync_api import sync_playwright
-import urllib.request,json,time,os,tempfile
-base=os.environ.get('SAFESENSE_TEST_URL','http://127.0.0.1:8000')
+"""Browser acceptance flow. Run only against a disposable local database."""
+import os
+import time
+from pathlib import Path
+from playwright.sync_api import sync_playwright, expect
+BASE=os.environ.get('SAFESENSE_TEST_URL','http://127.0.0.1:8000')
+OUTPUT=Path(os.environ.get('SAFESENSE_TEST_OUTPUT','work/browser'))
+OUTPUT.mkdir(parents=True,exist_ok=True)
+
 with sync_playwright() as p:
     browser=p.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH','/usr/bin/chromium'),headless=True,args=['--no-sandbox'])
-    page=browser.new_page(viewport={'width':1440,'height':1000});errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
-    page.goto(base);page.get_by_role('button',name='+ Add camera').click()
-    page.locator('#cameraForm [name=name]').fill('Synthetic line 01');page.locator('#cameraForm [name=location]').fill('Demo workshop')
-    page.get_by_role('button',name='Save camera').click();page.locator('.card').wait_for();page.locator('.card img').wait_for()
-    page.locator('.card').click();page.locator('#detailDialog').wait_for(state='visible');page.get_by_role('button',name='+ Draw zone').click()
-    r=page.locator('#overlay').bounding_box()
-    for x,y in [(.1,.1),(.9,.1),(.9,.95),(.1,.95)]: page.mouse.click(r['x']+x*r['width'],r['y']+y*r['height'])
-    page.get_by_role('button',name='Finish polygon').click();page.locator('#zoneForm [name=name]').fill('Demo restriction');page.locator('#zoneForm [name=required_ppe]').select_option(['helmet']);page.get_by_role('button',name='Save zone',exact=True).click()
-    page.locator('#zoneList').get_by_text('Demo restriction',exact=True).wait_for();page.locator('#detailIncidents button[data-ack]').first.wait_for();page.locator('#detailIncidents button[data-ack]').first.click();page.locator('#detailIncidents button[data-resolve]').first.click()
-    page.locator('#zoneList').get_by_role('button',name='Edit',exact=True).click()
-    # Drag a vertex, insert a vertex on an edge, then remove it.
-    page.mouse.move(r['x']+.1*r['width'],r['y']+.1*r['height']);page.mouse.down();page.mouse.move(r['x']+.15*r['width'],r['y']+.15*r['height']);page.mouse.up()
-    assert page.locator('#overlay circle').count()==4
-    page.mouse.click(r['x']+.525*r['width'],r['y']+.125*r['height']);assert page.locator('#overlay circle').count()==5
-    page.keyboard.press('Delete');assert page.locator('#overlay circle').count()==4
-    page.get_by_role('button',name='Cancel',exact=True).last.click()
-    page.get_by_role('button',name='Close',exact=True).click();page.get_by_role('button',name='Incidents',exact=False).first.click();page.locator('#incidentList').wait_for();assert 'SIMULATED' in page.locator('#incidentList').inner_text()
-    page.get_by_role('button',name='Dashboard').click();page.screenshot(path=os.path.join(tempfile.gettempdir(),'safesense-dashboard.png'),full_page=True)
-    # Offline state, verified through real API and visible tile.
-    req=urllib.request.Request(base+'/api/cameras',data=json.dumps({'name':'Disconnected demo','source_type':'demo','source':'offline'}).encode(),headers={'Content-Type':'application/json'},method='POST');urllib.request.urlopen(req).close()
-    page.get_by_text('Disconnected demo',exact=True).wait_for();assert page.locator('.unavailable').count()>=1
-    # Capture actual multipart bytes rather than relying on a listening port.
-    with urllib.request.urlopen(base+'/api/cameras/1/stream') as stream:
-        data=stream.read(2048);assert b'--frame\r\n' in data and b'Content-Type: image/jpeg' in data and b'\xff\xd8' in data
+    page=browser.new_page(viewport={'width':1440,'height':900})
+    errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
+    page.goto(BASE)
+    page.locator('#loginName').fill('admin');page.locator('#loginPassword').fill('bad')
+    page.locator('#signIn').click();expect(page.locator('#loginError')).to_contain_text('Incorrect')
+    page.locator('#loginPassword').fill('admin');page.locator('#signIn').click()
+    expect(page.locator('#appView')).to_be_visible()
+    # Authenticated APIContext shares the browser's actual session cookies.
+    api=page.context.request
+    for cam in api.get(BASE+'/api/cameras').json():
+        assert cam['source_type']=='demo','Use a fresh disposable database, not a real workspace.'
+        api.delete(BASE+f"/api/cameras/{cam['id']}")
+    page.reload();page.locator('#emptyDemo').click()
+    expect(page.locator('.camera-card')).to_have_count(6)
+    page.wait_for_function('Array.from(document.querySelectorAll(".camera-card img")).every(i=>i.naturalWidth>0)')
+    # Verify controls still respond with six visible feeds.
+    page.locator('#headingAdd').click();expect(page.locator('#cameraDialog')).to_be_visible()
+    f=page.locator('#cameraForm')
+    f.locator('[name=name]').fill('Invalid USB');f.locator('[name=location]').fill('QA Lab')
+    f.locator('[name=source]').fill('99');page.locator('#saveCamera').click()
+    expect(f.locator('.form-error')).to_contain_text('USB camera',timeout=15000)
+    expect(page.locator('.camera-card')).to_have_count(6)
+    f.locator('[data-close]').first.click()
+    # Reproducible zone shape, name/type, movement and cancel semantics.
+    page.locator('.camera-card').first.click();expect(page.locator('#detailDialog')).to_be_visible()
+    page.locator('#addZone').click();zone=page.locator('#zoneForm')
+    zone.locator('[name=name]').fill('QA perimeter')
+    zone.locator('[name=type]').select_option('restricted')
+    zone.locator('[name=severity]').select_option('critical')
+    bounds=page.locator('#overlay').bounding_box()
+    for x,y in [(.12,.14),(.82,.14),(.82,.92),(.12,.92)]:
+        page.mouse.click(bounds['x']+x*bounds['width'],bounds['y']+y*bounds['height'])
+    page.locator('#finishPolygon').click();zone.locator('button.primary').click()
+    expect(page.locator('#zoneList')).to_contain_text('QA perimeter')
+    camera_id=api.get(BASE+'/api/cameras').json()[0]['id']
+    saved=api.get(BASE+f'/api/cameras/{camera_id}/zones').json()[0]
+    assert saved['name']=='QA perimeter' and saved['type']=='restricted'
+    page.locator('#zoneList button').first.click();zone.locator('[name=name]').fill('Unsaved name')
+    # Move a vertex.
+    page.mouse.move(bounds['x']+.12*bounds['width'],bounds['y']+.14*bounds['height']);page.mouse.down()
+    page.mouse.move(bounds['x']+.16*bounds['width'],bounds['y']+.19*bounds['height']);page.mouse.up()
+    page.locator('#cancelZone').click()
+    assert api.get(BASE+f'/api/cameras/{camera_id}/zones').json()[0]['polygon']==saved['polygon']
+    expect(page.locator('#zoneList')).to_contain_text('QA perimeter')
+    page.locator('#zoneList button').first.click();zone.locator('[name=name]').fill('QA revised')
+    zone.locator('[name=type]').select_option('danger')
+    page.mouse.move(bounds['x']+.12*bounds['width'],bounds['y']+.14*bounds['height']);page.mouse.down()
+    page.mouse.move(bounds['x']+.16*bounds['width'],bounds['y']+.19*bounds['height']);page.mouse.up()
+    zone.locator('button.primary').click();expect(page.locator('#zoneList')).to_contain_text('QA revised')
+    revised=api.get(BASE+f'/api/cameras/{camera_id}/zones').json()[0]
+    assert revised['type']=='danger' and revised['polygon']!=saved['polygon']
+    # Close-with-X discards a new draft.
+    page.locator('#addZone').click();zone.locator('[name=name]').fill('Discard on close')
+    page.locator('#detailDialog [data-close]').click()
+    assert len(api.get(BASE+f'/api/cameras/{camera_id}/zones').json())==1
+    # Incident workflow uses real persisted engine outputs.
+    page.locator('#activityButton').click();expect(page.locator('#incidentList .incident-row').first).to_be_visible(timeout=15000)
+    ack=page.locator('#incidentList [data-ack]').first;ack.click()
+    expect(page.locator('#incidentList')).to_contain_text('acknowledged')
+    page.locator('#incidentList [data-resolve]').first.click()
+    expect(page.locator('#incidentList')).to_contain_text('resolved')
+    page.locator('#activityDialog [data-close]').click()
+    # Light theme persists across reload.
+    page.locator('#sidebar').hover();page.locator('#themeToggle').click()
+    assert page.locator('body').evaluate('e=>e.classList.contains("light")')
+    page.reload();expect(page.locator('.camera-card')).to_have_count(6)
+    assert page.locator('body').evaluate('e=>e.classList.contains("light")')
+    page.locator('#sidebar').hover();page.locator('#themeToggle').click()
+    # Cancel and confirm removal, then exit deletion mode by clicking it again.
+    page.locator('#sidebar').hover();page.locator('#deleteMode').click()
+    page.locator('.remove-camera').last.click();page.locator('#confirmDialog button[data-close]').last.click()
+    expect(page.locator('.camera-card')).to_have_count(6)
+    page.locator('.remove-camera').last.click();page.locator('#confirmDelete').click()
+    expect(page.locator('.camera-card')).to_have_count(5)
+    page.locator('#sidebar').hover();page.locator('#deleteMode').click()
+    expect(page.locator('#deleteBanner')).to_be_hidden()
+    assert len(api.get(BASE+'/api/cameras').json())==5
+    # Three feeds: one large on top, two below. All counts remain in the viewport.
+    cams=api.get(BASE+'/api/cameras').json()
+    for cam in cams[3:]: api.delete(BASE+f"/api/cameras/{cam['id']}")
+    page.reload();expect(page.locator('.camera-card')).to_have_count(3)
+    assert page.locator('.camera-row').nth(0).locator('.camera-card').count()==1
+    assert page.locator('.camera-row').nth(1).locator('.camera-card').count()==2
+    assert page.evaluate('document.body.scrollHeight')==900
+    page.screenshot(path=str(OUTPUT/'three-camera-layout.png'))
+    for width,height in [(1440,900),(1024,768),(390,844)]:
+        page.set_viewport_size({'width':width,'height':height});page.wait_for_timeout(350)
+        assert page.evaluate('document.body.scrollHeight')==height
+        for box in page.locator('.camera-card').all():
+            rect=box.bounding_box();assert rect['y']+rect['height']<=height
+        assert page.evaluate('document.documentElement.scrollWidth')==width
+    page.set_viewport_size({'width':1440,'height':900})
+    # Fullscreen focus can always be exited with Escape.
+    page.locator('#fullscreen').click();assert page.locator('body').evaluate('e=>e.classList.contains("focus")')
+    page.keyboard.press('Escape');assert not page.locator('body').evaluate('e=>e.classList.contains("focus")')
+    page.locator('#sidebar').hover();page.locator('#logout').click()
+    expect(page.locator('#loginView')).to_be_visible()
+    assert api.get(BASE+'/api/cameras').status==401
     assert not errors,errors
-    print('PASS: add demo, changing MJPEG, detail, polygon draw/save/drag/insert/remove/cancel, incident acknowledge/resolve, offline tile; no browser errors')
     browser.close()
+    print('PASS: login, six responsive feeds, invalid USB rejection, zone draw/save/move/cancel/type, close discard, incident lifecycle, themes, delete/cancel, adaptive layout, focus, logout; no JS errors')
