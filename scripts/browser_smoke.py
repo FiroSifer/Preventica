@@ -42,7 +42,7 @@ with sync_playwright() as p:
     for x,y in [(.12,.14),(.82,.14),(.82,.92),(.12,.92)]:
         page.mouse.click(bounds['x']+x*bounds['width'],bounds['y']+y*bounds['height'])
     page.locator('#finishPolygon').click();zone.locator('button.primary').click()
-    expect(page.locator('#zoneList')).to_contain_text('QA perimeter')
+    expect(page.locator('#zoneList')).to_be_visible();expect(page.locator('#zoneList')).to_contain_text('QA perimeter')
     camera_id=api.get(BASE+'/api/cameras').json()[0]['id']
     saved=api.get(BASE+f'/api/cameras/{camera_id}/zones').json()[0]
     assert saved['name']=='QA perimeter' and saved['type']=='restricted'
@@ -72,18 +72,18 @@ with sync_playwright() as p:
     expect(page.locator('#incidentList')).to_contain_text('resolved')
     page.locator('#activityDialog [data-close]').click()
     # Light theme persists across reload.
-    page.locator('#sidebar').hover();page.locator('#themeToggle').click()
+    page.locator('#pinSidebar').click();page.locator('#themeToggle').click()
     assert page.locator('body').evaluate('e=>e.classList.contains("light")')
     page.reload();expect(page.locator('.camera-card')).to_have_count(6)
     assert page.locator('body').evaluate('e=>e.classList.contains("light")')
-    page.locator('#sidebar').hover();page.locator('#themeToggle').click()
+    page.locator('#pinSidebar').click();page.locator('#themeToggle').click()
     # Cancel and confirm removal, then exit deletion mode by clicking it again.
-    page.locator('#sidebar').hover();page.locator('#deleteMode').click()
+    page.locator('#pinSidebar').click();page.locator('#deleteMode').click()
     page.locator('.remove-camera').last.click();page.locator('#confirmDialog button[data-close]').last.click()
     expect(page.locator('.camera-card')).to_have_count(6)
     page.locator('.remove-camera').last.click();page.locator('#confirmDelete').click()
     expect(page.locator('.camera-card')).to_have_count(5)
-    page.locator('#sidebar').hover();page.locator('#deleteMode').click()
+    page.locator('#pinSidebar').click();page.locator('#deleteMode').click()
     expect(page.locator('#deleteBanner')).to_be_hidden()
     assert len(api.get(BASE+'/api/cameras').json())==5
     # Three feeds: one large on top, two below. All counts remain in the viewport.
@@ -101,12 +101,52 @@ with sync_playwright() as p:
             rect=box.bounding_box();assert rect['y']+rect['height']<=height
         assert page.evaluate('document.documentElement.scrollWidth')==width
     page.set_viewport_size({'width':1440,'height':900})
-    # Fullscreen focus can always be exited with Escape.
-    page.locator('#fullscreen').click();assert page.locator('body').evaluate('e=>e.classList.contains("focus")')
-    page.keyboard.press('Escape');assert not page.locator('body').evaluate('e=>e.classList.contains("focus")')
-    page.locator('#sidebar').hover();page.locator('#logout').click()
+    # Dashboard is the default full-width view; navigation reveals in two stages.
+    page.mouse.move(700,400);page.wait_for_timeout(350)
+    assert page.locator('#sidebar').bounding_box()['x']<0
+    page.mouse.move(80,400);page.wait_for_timeout(350)
+    assert 58<=page.locator('#sidebar').bounding_box()['width']<=62
+    page.mouse.move(30,400);page.wait_for_timeout(350)
+    assert page.locator('#sidebar').bounding_box()['width']==224
+    page.mouse.move(700,400);page.wait_for_timeout(350)
+    assert page.locator('#sidebar').bounding_box()['x']<0
+    assert page.locator('#cameraGrid').bounding_box()['width']>1400
+    assert page.locator('#openSystem').count()==0
+    # Overlay visibility is shared, persists, and never mutates zone configuration.
+    zones_before=api.get(BASE+f'/api/cameras/{camera_id}/zones').json()
+    page.locator('#pinSidebar').click();page.locator('#toggleOverlays').click()
+    assert page.locator('body').evaluate('e=>e.classList.contains("overlays-hidden")')
+    page.locator('.camera-card').first.click()
+    expect(page.locator('#detailOverlays')).to_have_attribute('aria-pressed','false')
+    expect(page.locator('#overlay')).to_have_css('opacity','0')
+    page.locator('#addZone').click()
+    expect(page.locator('#overlay')).to_have_css('opacity','1')
+    page.locator('#cancelZone').click()
+    page.locator('#detailOverlays').click()
+    expect(page.locator('#detailOverlays')).to_have_attribute('aria-pressed','true')
+    page.locator('#detailDialog [data-close]').click()
+    expect(page.locator('#detailDialog')).to_be_hidden()
+    assert api.get(BASE+f'/api/cameras/{camera_id}/zones').json()==zones_before
+    # Every workspace and form fits without scrolling at representative sizes.
+    def fits(selector):
+        assert page.locator(selector).evaluate('e=>e.scrollHeight<=e.clientHeight+1 && e.scrollWidth<=e.clientWidth+1'),selector
+    for width,height in [(1440,900),(1366,768),(1024,768),(390,844),(375,667),(844,390)]:
+        page.set_viewport_size({'width':width,'height':height});page.wait_for_timeout(350)
+        page.locator('.camera-card').first.click();page.wait_for_timeout(500)
+        for selector in ['#detailDialog','.detail-layout','.detail-left','.report-panel','#reportView','#findingsPanel','#detailIncidents']:
+            fits(selector)
+        page.locator('#addZone').click();page.screenshot(path=str(OUTPUT/f'zone-{width}x{height}.png'));fits('#zoneForm');fits('.report-panel')
+        page.locator('#cancelZone').click()
+        page.locator('#detailDialog [data-close]').click();expect(page.locator('#detailDialog')).to_be_hidden()
+        page.locator('#headingAdd').click();fits('#cameraDialog')
+        page.locator('#cameraDialog [data-close]').first.click();expect(page.locator('#cameraDialog')).to_be_hidden()
+        page.locator('#activityButton').click();page.wait_for_timeout(100)
+        fits('#activityDialog');fits('#incidentList')
+        page.locator('#activityDialog [data-close]').click();expect(page.locator('#activityDialog')).to_be_hidden()
+    page.set_viewport_size({'width':1440,'height':900})
+    page.locator('#pinSidebar').click();page.locator('#logout').click()
     expect(page.locator('#loginView')).to_be_visible()
     assert api.get(BASE+'/api/cameras').status==401
     assert not errors,errors
     browser.close()
-    print('PASS: login, six responsive feeds, invalid USB rejection, zone draw/save/move/cancel/type, close discard, incident lifecycle, themes, delete/cancel, adaptive layout, focus, logout; no JS errors')
+    print('PASS: login, six responsive feeds, invalid USB rejection, zone draw/save/move/cancel/type, close discard, incident lifecycle, themes, delete/cancel, adaptive layout, hidden navigation, shared overlays, viewport-fitted dialogs, logout; no JS errors')

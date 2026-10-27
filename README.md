@@ -1,6 +1,6 @@
 # SafeSense AI — Safety, in sight.
 
-A local industrial safety monitoring application built with FastAPI, SQLite, OpenCV and Ultralytics. This release adds the violet glass interface, login, an adaptive camera wall, camera connection validation, a polygon editor, reports, incident history, and three configured pretrained detectors.
+A local industrial safety monitoring application built with FastAPI, SQLite, OpenCV and Ultralytics. The default workspace is a viewport-fitted camera dashboard with violet glass controls, an auto-hiding navigation rail, camera connection validation, a polygon editor, incident history, and three configured pretrained detectors.
 
 ## Start
 
@@ -29,15 +29,15 @@ On Windows use `py -3 -m venv .venv`, then `.venv\Scripts\python.exe` in place o
 
 ## Exhibition walkthrough
 
-1. Sign in. Choose **Try the exhibition** on the empty camera wall, or **System & models → Load exhibition cameras**. Six cameras and sample safety zones are created in the real SQLite database.
+1. Sign in. Choose **Try the exhibition** on the empty camera wall. Six cameras and sample safety zones are created in the real SQLite database.
 2. The scenes are generated still images with changing timestamps and simulated moving detection tracks. Labels on each feed and every incident identify simulated evidence. These scenarios exercise the actual tracking, zone rules, alerts, database, reports and incident lifecycle. Their detections are independent of real inference.
-3. Move the pointer to the far left: the toolbar expands. It also works with keyboard focus or the menu button.
-4. Select a camera to open the enlarged live frame and report. The report shows name, location, timestamp, detected classes, people, assessment state, recent findings and existing zones.
-5. Select **Edit zones**. Enter a name and choose danger (red boundary) or restricted (purple boundary). Select warning/critical severity and optional required PPE. Click the image to place vertices; click the first point or **Finish polygon** to finish. Drag vertices to reshape, drag inside to move, or click an edge to insert a vertex. Select a point and press Delete to remove it, keeping at least three points. Confirm saves the zone. Repeat to create multiple zones.
+3. Move the pointer near the left edge to reveal the icon rail; hover over the rail to expand its labels. Move away to hide it. The menu button supports touch and keyboard access, and Escape dismisses it.
+4. Select a camera to open the enlarged live frame; its information panel slides in alongside it. Location, people and detected classes stay visible. Switch between **Findings** and **Zones**; use the page arrows for longer lists. The camera, forms and incident history fit the viewport without scrolling. **Zones & detections** in navigation, or the polygon button below the enlarged feed, toggles overlays across all cameras. This preference survives reload; monitoring, safety rules, saved zones and alerts continue while the overlays are hidden. Drawing or editing a zone temporarily displays its boundary.
+5. Select **Edit zones**. Enter a name and choose danger (red boundary) or restricted (purple boundary). Select warning/critical severity and optional required PPE checkboxes. Click the image to place vertices; click the first point or **Finish polygon** to finish. Drag vertices to reshape, drag inside to move, or click an edge to insert a vertex. Select a point and press Delete to remove it, keeping at least three points. Confirm saves the zone. Repeat to create multiple zones.
 6. Select an existing zone in the report to edit it. Cancel or close the camera with × to discard the current draft. Previously confirmed zones remain saved. The backend independently rejects crossed, degenerate or out-of-frame polygons.
 7. **Delete cameras** enters removal mode. Each camera gets an × button. The custom confirmation supports Yes/No. Yes removes the camera and its zones from SQLite; historical incidents are retained with deleted references cleared. Use **Cancel** or click Delete cameras again to leave removal mode.
 8. Review **Incident history**. Filter by camera, severity or status; acknowledge and resolve findings. Camera outlines indicate the highest active finding. Findings remain active until resolved, even if the person has moved away.
-9. Toggle the sun/moon control for light/dark mode. The preference survives reload. **Focus mode** maximizes the camera wall; Escape returns to the standard view. **Sign out** returns to login.
+9. Toggle the sun/moon control for light/dark mode. The preference survives reload. The camera wall fills the workspace by default. **Sign out** returns to login.
 
 All camera tiles fit in the viewport. One camera fills the wall, three use one wide top tile and two bottom tiles, and other counts use balanced rows chosen for the available screen shape. The wall has no scrolling. More cameras mean smaller tiles; up to 64 registrations are accepted, but practical inference capacity depends on your computer.
 
@@ -92,7 +92,7 @@ Danger and restricted boundaries use a tracked person's bottom-center point. Dis
 
 **Gas detection and human injury detection are not implemented.** Ordinary RGB footage cannot reliably identify invisible gases; calibrated sensor hardware/integration is required. Injury/fall assessment needs a separately validated temporal/pose system. No simulated result is presented as a real gas or injury detection.
 
-The System & models screen shows the actual loaded classes, capabilities and failures. If weights are missing or cannot load, video remains available and the UI indicates the missing capability.
+The camera panel shows detected classes and any capture/inference error. The model status API at `/api/model/status` exposes loaded classes, capabilities and failures. If weights are missing or cannot load, video remains available.
 
 ## Verification
 
@@ -103,7 +103,7 @@ npm test
 
 The Python suite checks authentication, connection-error handling, duplicate rejection, camera/zone CRUD, independent polygon validation, actual JPEG bytes, demo workers, tracking/PPE association, danger/restricted/hazard persistence, incident lifecycle, restart persistence, WebSocket events and origin protection. Node tests check normalized geometry.
 
-`scripts/browser_smoke.py` exercises login, six simultaneous feeds and responsive controls, invalid USB rejection, polygon draw/save/move/type/cancel, X-to-discard, incident acknowledgement/resolution, persistent themes, camera deletion Yes/No, 3-camera layout, viewport fitting at desktop/tablet/mobile sizes, focus and logout. Run only against a **disposable database**: it removes demo cameras. It refuses to remove real cameras.
+`scripts/browser_smoke.py` exercises login, six simultaneous feeds and responsive controls, invalid USB rejection, polygon draw/save/move/type/cancel, X-to-discard, incident acknowledgement/resolution, persistent themes, camera deletion Yes/No, 3-camera layout, viewport fitting for the wall, camera, zone editor, camera form and incident history at desktop/tablet/mobile sizes; two-stage navigation, shared overlay visibility and logout. Run only against a **disposable database**: it removes demo cameras. It refuses to remove real cameras.
 
 Example with a separate server:
 
