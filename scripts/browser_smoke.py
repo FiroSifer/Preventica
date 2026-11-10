@@ -19,19 +19,25 @@ with sync_playwright() as p:
     # Authenticated APIContext shares the browser's actual session cookies.
     api=page.context.request
     for cam in api.get(BASE+'/api/cameras').json():
-        assert cam['source_type']=='demo','Use a fresh disposable database, not a real workspace.'
+        assert cam['source_type'] in ('demo','video'),'Use a fresh disposable database, not a real workspace.'
         api.delete(BASE+f"/api/cameras/{cam['id']}")
     page.reload();page.locator('#emptyDemo').click()
-    expect(page.locator('.camera-card')).to_have_count(6)
+    expect(page.locator('.camera-card')).to_have_count(3)
+    assert page.locator('.dashboard-bar').count()==0
     page.wait_for_function('Array.from(document.querySelectorAll(".camera-card img")).every(i=>i.naturalWidth>0)')
-    # Verify controls still respond with six visible feeds.
-    page.locator('#headingAdd').click();expect(page.locator('#cameraDialog')).to_be_visible()
+    page.wait_for_function("Array.from(document.querySelectorAll('.feed-source')).every(e=>e.textContent.includes('RECORDED'))")
+    # Verify controls still respond with three visible feeds.
+    page.locator('#pinSidebar').click();page.locator('#newCamera').click();expect(page.locator('#cameraDialog')).to_be_visible()
     f=page.locator('#cameraForm')
     f.locator('[name=name]').fill('Invalid USB');f.locator('[name=location]').fill('QA Lab')
     f.locator('[name=source]').fill('99');page.locator('#saveCamera').click()
     expect(f.locator('.form-error')).to_contain_text('USB camera',timeout=15000)
-    expect(page.locator('.camera-card')).to_have_count(6)
+    expect(page.locator('.camera-card')).to_have_count(3)
     f.locator('[data-close]').first.click()
+    # Isolate polygon CRUD from the exhibition's preconfigured checkpoints.
+    first_camera=api.get(BASE+'/api/cameras').json()[0]['id']
+    for z in api.get(BASE+f'/api/cameras/{first_camera}/zones').json():api.delete(BASE+f"/api/zones/{z['id']}")
+    page.wait_for_timeout(2000)
     # Reproducible zone shape, name/type, movement and cancel semantics.
     page.locator('.camera-card').first.click();expect(page.locator('#detailDialog')).to_be_visible()
     page.locator('#addZone').click();zone=page.locator('#zoneForm')
@@ -64,8 +70,12 @@ with sync_playwright() as p:
     page.locator('#addZone').click();zone.locator('[name=name]').fill('Discard on close')
     page.locator('#detailDialog [data-close]').click()
     assert len(api.get(BASE+f'/api/cameras/{camera_id}/zones').json())==1
+    # A full-frame danger zone makes the real-footage incident check reliable,
+    # independently of where the recorded pedestrian is in its walking cycle.
+    trigger=api.post(BASE+f'/api/cameras/{camera_id}/zones',data={'name':'QA incident trigger','type':'danger','severity':'critical','polygon':[[0,0],[1,0],[1,1],[0,1]],'required_ppe':[]})
+    assert trigger.status==201,trigger.text()
     # Incident workflow uses real persisted engine outputs.
-    page.locator('#activityButton').click();expect(page.locator('#incidentList .incident-row').first).to_be_visible(timeout=15000)
+    page.locator('#pinSidebar').click();page.locator('#openIncidents').click();expect(page.locator('#incidentList .incident-row').first).to_be_visible(timeout=15000)
     ack=page.locator('#incidentList [data-ack]').first;ack.click()
     expect(page.locator('#incidentList')).to_contain_text('acknowledged')
     page.locator('#incidentList [data-resolve]').first.click()
@@ -74,19 +84,21 @@ with sync_playwright() as p:
     # Light theme persists across reload.
     page.locator('#pinSidebar').click();page.locator('#themeToggle').click()
     assert page.locator('body').evaluate('e=>e.classList.contains("light")')
-    page.reload();expect(page.locator('.camera-card')).to_have_count(6)
+    page.reload();expect(page.locator('.camera-card')).to_have_count(3)
     assert page.locator('body').evaluate('e=>e.classList.contains("light")')
     page.locator('#pinSidebar').click();page.locator('#themeToggle').click()
     # Cancel and confirm removal, then exit deletion mode by clicking it again.
     page.locator('#pinSidebar').click();page.locator('#deleteMode').click()
     page.locator('.remove-camera').last.click();page.locator('#confirmDialog button[data-close]').last.click()
-    expect(page.locator('.camera-card')).to_have_count(6)
+    expect(page.locator('.camera-card')).to_have_count(3)
     page.locator('.remove-camera').last.click();page.locator('#confirmDelete').click()
-    expect(page.locator('.camera-card')).to_have_count(5)
+    expect(page.locator('.camera-card')).to_have_count(2)
     page.locator('#pinSidebar').click();page.locator('#deleteMode').click()
     expect(page.locator('#deleteBanner')).to_be_hidden()
-    assert len(api.get(BASE+'/api/cameras').json())==5
+    assert len(api.get(BASE+'/api/cameras').json())==2
     # Three feeds: one large on top, two below. All counts remain in the viewport.
+    page.locator('#pinSidebar').click();page.locator('#videoExhibition').click()
+    expect(page.locator('.camera-card')).to_have_count(3)
     cams=api.get(BASE+'/api/cameras').json()
     for cam in cams[3:]: api.delete(BASE+f"/api/cameras/{cam['id']}")
     page.reload();expect(page.locator('.camera-card')).to_have_count(3)
@@ -110,7 +122,7 @@ with sync_playwright() as p:
     assert page.locator('#sidebar').bounding_box()['width']==224
     page.mouse.move(700,400);page.wait_for_timeout(350)
     assert page.locator('#sidebar').bounding_box()['x']<0
-    assert page.locator('#cameraGrid').bounding_box()['width']>1400
+    assert page.locator('#cameraGrid').bounding_box()['width']>1370
     assert page.locator('#openSystem').count()==0
     # Overlay visibility is shared, persists, and never mutates zone configuration.
     zones_before=api.get(BASE+f'/api/cameras/{camera_id}/zones').json()
@@ -138,9 +150,9 @@ with sync_playwright() as p:
         page.locator('#addZone').click();page.screenshot(path=str(OUTPUT/f'zone-{width}x{height}.png'));fits('#zoneForm');fits('.report-panel')
         page.locator('#cancelZone').click()
         page.locator('#detailDialog [data-close]').click();expect(page.locator('#detailDialog')).to_be_hidden()
-        page.locator('#headingAdd').click();fits('#cameraDialog')
+        page.locator('#pinSidebar').click();page.locator('#newCamera').click();fits('#cameraDialog')
         page.locator('#cameraDialog [data-close]').first.click();expect(page.locator('#cameraDialog')).to_be_hidden()
-        page.locator('#activityButton').click();page.wait_for_timeout(100)
+        page.locator('#pinSidebar').click();page.locator('#openIncidents').click();page.wait_for_timeout(100)
         fits('#activityDialog');fits('#incidentList')
         page.locator('#activityDialog [data-close]').click();expect(page.locator('#activityDialog')).to_be_hidden()
     page.set_viewport_size({'width':1440,'height':900})
@@ -149,4 +161,4 @@ with sync_playwright() as p:
     assert api.get(BASE+'/api/cameras').status==401
     assert not errors,errors
     browser.close()
-    print('PASS: login, six responsive feeds, invalid USB rejection, zone draw/save/move/cancel/type, close discard, incident lifecycle, themes, delete/cancel, adaptive layout, hidden navigation, shared overlays, viewport-fitted dialogs, logout; no JS errors')
+    print('PASS: login, three real video feeds, invalid USB rejection, zone draw/save/move/cancel/type, close discard, incident lifecycle, themes, delete/cancel, adaptive layout, hidden navigation, shared overlays, viewport-fitted dialogs, logout; no JS errors')

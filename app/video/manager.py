@@ -14,9 +14,9 @@ log=logging.getLogger(__name__)
 class Worker:
     def __init__(self,camera,settings,detector,sessions,incidents,events):
         self.camera=camera; self.settings=settings; self.detector=detector; self.sessions=sessions; self.incidents=incidents; self.events=events
-        self.stop=threading.Event(); self.lock=threading.Lock(); self.frame=None; self.jpeg=None; self.seq=0; self.status='connecting'; self.error=None; self.last_frame=None
+        self.stop=threading.Event(); self.lock=threading.Lock(); self.frame=None; self.jpeg=None; self.seq=0; self.capture_epoch=0; self.status='connecting'; self.error=None; self.last_frame=None
         self.demo_detections=[]
-        self.result={'detections':[],'people':[],'ppe':{},'simulated':camera.source_type=='demo','dimensions':[800,450]}; self.tracker=Tracker(); self.rules=Rules(incidents,settings.min_observations)
+        self.result={'detections':[],'people':[],'ppe':{},'simulated':camera.source_type=='demo','dimensions':[800,450],'ppe_assessments':[]}; self.tracker=Tracker(); self.rules=Rules(incidents,settings.min_observations)
         self.threads=[threading.Thread(target=self.capture,daemon=True),threading.Thread(target=self.infer,daemon=True)]
     def start(self):
         for t in self.threads: t.start()
@@ -25,7 +25,10 @@ class Worker:
     def set_status(self,status,error=None):
         with self.lock:
             changed=self.status!=status; self.status=status; self.error=error
-            if status!='online': self.frame=None; self.jpeg=None
+            if status!='online':
+                self.frame=None; self.jpeg=None
+                self.result.update(detections=[],people=[],ppe={},ppe_assessments=[])
+                self.capture_epoch+=1
         if changed:
             self.events.publish('camera.state',{'id':self.camera.id,'status':status,'error':error})
             if status=='offline': self.incidents.report(self.camera.id,None,None,'camera_offline','warning','Camera unavailable; monitoring coverage unknown',{},self.camera.source_type=='demo')
@@ -44,9 +47,32 @@ class Worker:
                         if not source: self.set_status('offline','Camera source environment variable is missing'); self.stop.wait(5); continue
                         # Do not pass URLs through logging. FFmpeg diagnostics can expose URLs, so suppress them.
                         os.environ.setdefault('OPENCV_FFMPEG_LOGLEVEL','-8')
-                        if self.camera.source_type=='usb': cap=cv2.VideoCapture(int(source))
+                        if self.camera.source_type=='video':
+                            from .catalog import video_path
+                            path=video_path(source)
+                            cap=cv2.VideoCapture(str(path))
+                            start=time.monotonic()
+                        elif self.camera.source_type=='usb': cap=cv2.VideoCapture(int(source))
                         else: cap=cv2.VideoCapture(source,cv2.CAP_FFMPEG,[cv2.CAP_PROP_OPEN_TIMEOUT_MSEC,3000,cv2.CAP_PROP_READ_TIMEOUT_MSEC,3000])
+                    if self.camera.source_type=='video':
+                        fps=cap.get(cv2.CAP_PROP_FPS) or 25
+                        count=int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                        target=int((time.monotonic()-start)*fps)
+                        if count and target>=count:
+                            start=time.monotonic(); target=0
+                            cap.set(cv2.CAP_PROP_POS_FRAMES,0)
+                            with self.lock: self.capture_epoch+=1
+                        if cap.get(cv2.CAP_PROP_POS_FRAMES)>target:
+                            self.stop.wait(1/self.settings.capture_fps); continue
+                        # Advance the recording at its native speed, irrespective
+                        # of the dashboard's capture/inference rate.
+                        while cap.get(cv2.CAP_PROP_POS_FRAMES)<target:
+                            if not cap.grab(): break
                     ok,frame=cap.read()
+                    if not ok and self.camera.source_type=='video':
+                        cap.set(cv2.CAP_PROP_POS_FRAMES,0); start=time.monotonic()
+                        with self.lock: self.capture_epoch+=1
+                        ok,frame=cap.read()
                     if not ok:
                         cap.release(); cap=None; self.set_status('offline','Cannot read camera; check source and connection')
                         self.stop.wait(backoff); backoff=min(15,backoff*2); continue
@@ -67,12 +93,14 @@ class Worker:
         finally:
             if cap: cap.release()
     def infer(self):
-        last=-1; start=time.monotonic()
+        last=-1; last_epoch=-1
         while not self.stop.is_set():
-            with self.lock: frame=self.frame; seq=self.seq; demo_detections=self.demo_detections
+            with self.lock: frame=self.frame; seq=self.seq; demo_detections=self.demo_detections; epoch=self.capture_epoch
             if frame is not None and seq!=last:
                 last=seq
                 try:
+                    if epoch!=last_epoch:
+                        self.tracker=Tracker(); self.rules.reset(); last_epoch=epoch
                     simulated=self.camera.source_type=='demo'
                     if simulated:
                         det=demo_detections
@@ -80,11 +108,17 @@ class Worker:
                     people=self.tracker.update(det); caps={'helmet','vest'} if simulated else set(self.detector.names.values())
                     ppe=associate(people,det,caps)
                     with self.sessions() as s: zones=s.scalars(select(Zone).where(Zone.camera_id==self.camera.id)).all()
-                    self.rules.evaluate(self.camera.id,zones,people,ppe,simulated)
+                    with self.lock:
+                        if epoch!=self.capture_epoch or self.status!='online': continue
+                    assessments=self.rules.evaluate(self.camera.id,zones,people,ppe,simulated)
                     self.rules.hazards(self.camera.id,det,simulated)
-                    with self.lock: self.result.update(detections=det,people=people,ppe=ppe,inference_error=None)
+                    with self.lock:
+                        if epoch==self.capture_epoch and self.status=='online':
+                            self.result.update(detections=det,people=people,ppe=ppe,ppe_assessments=assessments,inference_error=None if simulated or self.detector.model else 'Detection unavailable: install the configured models')
                 except Exception:
-                    with self.lock: self.result.update(detections=[],people=[],ppe={},inference_error='Inference unavailable; inspect model configuration')
+                    self.rules.reset()
+                    with self.lock:
+                        self.result.update(detections=[],people=[],ppe={},ppe_assessments=[],inference_error='Inference unavailable; inspect model configuration')
                     log.error('Inference failed (camera_id=%s)',self.camera.id)
                     self.stop.wait(5)
             self.stop.wait(1/self.settings.inference_fps)
@@ -105,6 +139,6 @@ class Manager:
             if w: w.close()
     def state(self,id):
         w=self.workers.get(id)
-        return w.state() if w else {'status':'offline','error':'Camera disabled','last_frame_at':None,'detections':[],'people':[],'ppe':{},'dimensions':[800,450],'simulated':False}
+        return w.state() if w else {'status':'offline','error':'Camera disabled','last_frame_at':None,'detections':[],'people':[],'ppe':{},'dimensions':[800,450],'ppe_assessments':[],'simulated':False}
     def close(self):
         for id in list(self.workers): self.remove(id)

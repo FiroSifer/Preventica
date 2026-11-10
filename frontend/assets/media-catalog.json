@@ -1,0 +1,82 @@
+[
+  {
+    "file": "videos/one-by-one-person-detection.mp4",
+    "sha256": "a5964aa259099a482a8b360ffc2c57b5a30f84d5919236a4dad01f8e929ac07c",
+    "source": "https://github.com/intel-iot-devkit/sample-videos/blob/master/one-by-one-person-detection.mp4",
+    "creator": "Intel IoT DevKit contributors",
+    "license": "CC BY 4.0",
+    "modifications": "Original MP4 unchanged. Playback loops; live frames resized."
+  },
+  {
+    "file": "videos/people-detection.mp4",
+    "sha256": "18ffe8672d741e3e29c9d891d22c59d453720b086c25b35c88b393d55f92f693",
+    "source": "https://github.com/intel-iot-devkit/sample-videos/blob/master/people-detection.mp4",
+    "creator": "Intel IoT DevKit contributors",
+    "license": "CC BY 4.0",
+    "modifications": "Original MP4 unchanged. Playback loops; live frames resized."
+  },
+  {
+    "file": "videos/worker-zone-detection.mp4",
+    "sha256": "b8b58b8100a81600bc42ee7ee082ced777b12a32a3619139ef289d27cbdcd284",
+    "source": "https://github.com/intel-iot-devkit/sample-videos/blob/master/worker-zone-detection.mp4",
+    "creator": "Intel IoT DevKit contributors",
+    "license": "CC BY 4.0",
+    "modifications": "Original MP4 unchanged. Playback loops; live frames resized."
+  },
+  {
+    "file": "sounds/click.wav",
+    "sha256": "ea67c9d78750e5a356bf53ef8c2063b52cc3ccdae6ae8afeec87f97f79ae692d",
+    "source": "https://github.com/Calinou/kenney-interface-sounds/blob/master/addons/kenney_interface_sounds/click_001.wav",
+    "creator": "Kenney \u00a9 2020; WAV conversion by Calinou",
+    "license": "CC0 1.0",
+    "modifications": "Renamed; playback gain adjusted; danger repeats three pulses."
+  },
+  {
+    "file": "sounds/confirm.wav",
+    "sha256": "b23339f3fdcd9f54520ca73caa3a9ae93ecfb3675acdaf1468990feb5d55d5fa",
+    "source": "https://github.com/Calinou/kenney-interface-sounds/blob/master/addons/kenney_interface_sounds/confirmation_002.wav",
+    "creator": "Kenney \u00a9 2020; WAV conversion by Calinou",
+    "license": "CC0 1.0",
+    "modifications": "Renamed; playback gain adjusted; danger repeats three pulses."
+  },
+  {
+    "file": "sounds/danger.wav",
+    "sha256": "7ed3f06867e213edcb7b314c693e30a6ffe5ea5c694c19b130c4727810a5729a",
+    "source": "https://github.com/Calinou/kenney-interface-sounds/blob/master/addons/kenney_interface_sounds/error_006.wav",
+    "creator": "Kenney \u00a9 2020; WAV conversion by Calinou",
+    "license": "CC0 1.0",
+    "modifications": "Renamed; playback gain adjusted; danger repeats three pulses."
+  },
+  {
+    "file": "sounds/delete.wav",
+    "sha256": "f22922e05f6ae75d7bed5b5ebf01c9fbb2c9f5d85333a2c0f750f7649b3c3169",
+    "source": "https://github.com/Calinou/kenney-interface-sounds/blob/master/addons/kenney_interface_sounds/close_002.wav",
+    "creator": "Kenney \u00a9 2020; WAV conversion by Calinou",
+    "license": "CC0 1.0",
+    "modifications": "Renamed; playback gain adjusted; danger repeats three pulses."
+  },
+  {
+    "file": "sounds/pop.wav",
+    "sha256": "72973e674ac557ebf29a843c6cc39bc9c7682bd684a737ba46812eea32cac21e",
+    "source": "https://github.com/Calinou/kenney-interface-sounds/blob/master/addons/kenney_interface_sounds/drop_002.wav",
+    "creator": "Kenney \u00a9 2020; WAV conversion by Calinou",
+    "license": "CC0 1.0",
+    "modifications": "Renamed; playback gain adjusted; danger repeats three pulses."
+  },
+  {
+    "file": "sounds/warning.wav",
+    "sha256": "3ac988f34d53623343c77060c950ee5671684eacd9bb382a32d145e011c44984",
+    "source": "https://github.com/Calinou/kenney-interface-sounds/blob/master/addons/kenney_interface_sounds/error_004.wav",
+    "creator": "Kenney \u00a9 2020; WAV conversion by Calinou",
+    "license": "CC0 1.0",
+    "modifications": "Renamed; playback gain adjusted; danger repeats three pulses."
+  },
+  {
+    "file": "sounds/whoosh.wav",
+    "sha256": "98bfee28b13cab4260b582c38a55cbd41bce0dec827558a37639b09169b10216",
+    "source": "https://github.com/Calinou/kenney-interface-sounds/blob/master/addons/kenney_interface_sounds/maximize_006.wav",
+    "creator": "Kenney \u00a9 2020; WAV conversion by Calinou",
+    "license": "CC0 1.0",
+    "modifications": "Renamed; playback gain adjusted; danger repeats three pulses."
+  }
+]

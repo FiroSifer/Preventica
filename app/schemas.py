@@ -7,7 +7,7 @@ from .safety.geometry import validate_polygon
 class CameraInput(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     location: str = Field(default='', max_length=200)
-    source_type: Literal['usb','network','demo']
+    source_type: Literal['usb','network','video','demo']
     source: str = Field(min_length=1, max_length=2048)
     enabled: bool = True
     @model_validator(mode='after')
@@ -18,6 +18,9 @@ class CameraInput(BaseModel):
             raise ValueError('USB source must be an index from 0 to 99')
         if self.source_type=='demo' and self.source not in ('synthetic','offline'):
             raise ValueError('Demo source must be synthetic or offline')
+        if self.source_type=='video':
+            from .video.catalog import VIDEOS
+            if self.source not in VIDEOS: raise ValueError('Choose a bundled footage sample')
         if self.source_type=='network':
             if self.source.startswith('env:'):
                 if not re.fullmatch(r'env:[A-Za-z_][A-Za-z0-9_]*', self.source): raise ValueError('Invalid environment reference')
@@ -30,7 +33,7 @@ class CameraInput(BaseModel):
 class CameraPatch(BaseModel):
     name: str | None = None
     location: str | None = None
-    source_type: Literal['usb','network','demo'] | None = None
+    source_type: Literal['usb','network','video','demo'] | None = None
     source: str | None = None
     enabled: bool | None = None
 
