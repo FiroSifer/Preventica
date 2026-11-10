@@ -40,9 +40,10 @@ def associate(people, detections, capabilities):
         # helmet/vest checks on a clear head and torso (common with webcams).
         small=c-a<.04 or d-b<.12
         clipped_sides=a<=.005 or c>=.995
+        # Cropped shoulders do not hide a centered head/torso.
         hidden={
-            'helmet': small or b<=.005 or clipped_sides,
-            'vest': small or b<=.005 or clipped_sides,
+            'helmet': small or b<=.005 or (a+c)/2<.08 or (a+c)/2>.92,
+            'vest': small or b<=.005 or (a+c)/2<.08 or (a+c)/2>.92,
             'gloves': small or b<=.005 or d>=.995 or clipped_sides,
             'boots': small or d>=.995 or clipped_sides,
         }

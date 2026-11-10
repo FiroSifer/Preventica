@@ -222,6 +222,10 @@ def test_cropped_webcam_checks_visible_ppe_per_item():
     people=[{**person((.2,.08,.8,1)), 'track_id':1}]
     result=associate(people,[{'label':'vest','bbox':[.3,.35,.7,.7]}],{'helmet','vest','boots'})[1]
     assert result=={'helmet':'not_detected','vest':'detected','gloves':'unsupported','boots':'insufficient_evidence'}
+    wide=[{**person((0,.08,1,1)), 'track_id':2}]
+    result=associate(wide,[],{'helmet','vest','boots'})[2]
+    assert result['helmet']==result['vest']=='not_detected'
+    assert result['boots']=='insufficient_evidence'
 
 
 def test_ppe_one_or_all_missing_outside_zone_and_alternating_evidence():

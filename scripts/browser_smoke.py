@@ -70,6 +70,10 @@ with sync_playwright() as p:
     page.locator('#addZone').click();zone.locator('[name=name]').fill('Discard on close')
     page.locator('#detailDialog [data-close]').click()
     assert len(api.get(BASE+f'/api/cameras/{camera_id}/zones').json())==1
+    # A full-frame danger zone makes the real-footage incident check reliable,
+    # independently of where the recorded pedestrian is in its walking cycle.
+    trigger=api.post(BASE+f'/api/cameras/{camera_id}/zones',data={'name':'QA incident trigger','type':'danger','severity':'critical','polygon':[[0,0],[1,0],[1,1],[0,1]],'required_ppe':[]})
+    assert trigger.status==201,trigger.text()
     # Incident workflow uses real persisted engine outputs.
     page.locator('#pinSidebar').click();page.locator('#openIncidents').click();expect(page.locator('#incidentList .incident-row').first).to_be_visible(timeout=15000)
     ack=page.locator('#incidentList [data-ack]').first;ack.click()
