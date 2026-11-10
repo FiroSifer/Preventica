@@ -36,7 +36,17 @@ def associate(people, detections, capabilities):
             findings[p['track_id']][label]='detected'
     for p in people:
         a,b,c,d=p['bbox']
-        if c-a<.04 or d-b<.12 or a<=.005 or b<=.005 or c>=.995 or d>=.995:
-            for label,state in findings[p['track_id']].items():
-                if state=='not_detected': findings[p['track_id']][label]='insufficient_evidence'
+        # Visibility is item-specific: a cropped boot region must not disable
+        # helmet/vest checks on a clear head and torso (common with webcams).
+        small=c-a<.04 or d-b<.12
+        clipped_sides=a<=.005 or c>=.995
+        hidden={
+            'helmet': small or b<=.005 or clipped_sides,
+            'vest': small or b<=.005 or clipped_sides,
+            'gloves': small or b<=.005 or d>=.995 or clipped_sides,
+            'boots': small or d>=.995 or clipped_sides,
+        }
+        for label,state in findings[p['track_id']].items():
+            if state=='not_detected' and hidden[label]:
+                findings[p['track_id']][label]='insufficient_evidence'
     return findings

@@ -1,4 +1,5 @@
 import threading
+from .tracking import iou
 
 ALIASES={'hardhat':'helmet','hard_hat':'helmet','hard-hat':'helmet','safety_helmet':'helmet','safety-helmet':'helmet','safety helmet':'helmet','safety vest':'vest','safety_vest':'vest','safety-vest':'vest','reflective vest':'vest','glove':'gloves','boot':'boots','flame':'fire','flames':'fire'}
 
@@ -33,7 +34,15 @@ class Detector:
                 result=model.predict(frame,conf=self.settings.confidence,imgsz=self.settings.image_size,device=self.settings.device,verbose=False)[0]
                 for b in result.boxes:
                     label=names[int(b.cls.item())]
-                    # Use one authoritative person model to avoid duplicate tracks.
-                    if kind!='people' and label=='person' and any(k=='people' for k,m,n in self.models): continue
+                    if label in ('default','none'): continue
                     detections.append({'class_id':int(b.cls.item()),'label':label,'confidence':float(b.conf.item()),'bbox':[float(v)/scale for v,scale in zip(b.xyxy[0].tolist(),[w,h,w,h])],'simulated':False})
-        return detections
+        # Retain PPE-model people missed by the general detector (common with
+        # near-camera views), merging overlapping people instead of discarding
+        # all specialized-model person detections.
+        merged=[]; people=[]
+        for detection in detections:
+            if detection['label']=='person':
+                if any(iou(detection['bbox'],p['bbox'])>=.45 for p in people): continue
+                people.append(detection)
+            merged.append(detection)
+        return merged

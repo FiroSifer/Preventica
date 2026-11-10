@@ -7,6 +7,7 @@ class Incidents:
     def __init__(self,sessions,events,cooldown): self.sessions=sessions; self.events=events; self.cooldown=cooldown; self.lock=threading.Lock()
     def report(self, camera_id, zone_id, track_id, category, severity, explanation, evidence, simulated=False):
         key=f'{camera_id}:{zone_id}:{track_id}:{category}'
+        if category=='potential_missing_ppe': key+=':'+','.join(sorted(evidence.get('not_detected',[])))
         with self.lock, self.sessions() as s:
             previous=s.scalar(select(Incident).where(Incident.key==key).order_by(Incident.id.desc()))
             if previous and (previous.status!='resolved' or previous.updated_at.replace(tzinfo=now().tzinfo)>now()-timedelta(seconds=self.cooldown)): return previous.id

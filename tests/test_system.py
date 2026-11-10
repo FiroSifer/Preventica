@@ -121,7 +121,7 @@ def test_rule_persistence_reset_and_unsupported():
     class Recorder:
         def __init__(self):self.calls=[]
         def report(self,*args):self.calls.append(args)
-    r=Recorder();rule=Rules(r,2);z=SimpleNamespace(id=1,enabled=True,type='warning',polygon=[[0,0],[1,0],[1,1],[0,1]],required_ppe=['helmet'],severity='warning')
+    r=Recorder();rule=Rules(r,2);z=SimpleNamespace(id=1,name='PPE checkpoint',enabled=True,type='warning',polygon=[[0,0],[1,0],[1,1],[0,1]],required_ppe=['helmet'],severity='warning')
     p={**person(),'track_id':1}
     for _ in range(3):rule.evaluate(1,[z],[p],{1:{'helmet':'unsupported'}},False)
     assert not r.calls
@@ -216,3 +216,86 @@ def test_danger_and_restricted_categories_and_hazard_persistence():
     rules.hazards(1,[fire]);assert len(recorder.calls)==2
     rules.hazards(1,[fire]);assert recorder.calls[-1][3]=='fire_hazard'
     assert recorder.calls[-1][6]['consecutive_observations']==2
+
+
+def test_cropped_webcam_checks_visible_ppe_per_item():
+    people=[{**person((.2,.08,.8,1)), 'track_id':1}]
+    result=associate(people,[{'label':'vest','bbox':[.3,.35,.7,.7]}],{'helmet','vest','boots'})[1]
+    assert result=={'helmet':'not_detected','vest':'detected','gloves':'unsupported','boots':'insufficient_evidence'}
+
+
+def test_ppe_one_or_all_missing_outside_zone_and_alternating_evidence():
+    from types import SimpleNamespace
+    class Recorder:
+        def __init__(self):self.calls=[]
+        def report(self,*args):self.calls.append(args)
+    recorder=Recorder();rule=Rules(recorder,2)
+    z=SimpleNamespace(id=1,name='Webcam PPE',enabled=True,type='warning',polygon=[[.1,.05],[.9,.05],[.9,.95],[.1,.95]],required_ppe=['helmet','vest'],severity='warning')
+    p={**person((.2,.08,.8,1)), 'track_id':1}
+    # Legs are outside the frame; the visible torso is inside the PPE checkpoint.
+    for _ in range(2):result=rule.evaluate(1,[z],[p],{1:{'helmet':'not_detected','vest':'detected'}},False)
+    assert result[0]['status']=='missing' and result[0]['missing']==['helmet']
+    assert recorder.calls[-1][6]['not_detected']==['helmet'] and recorder.calls[-1][-1] is False
+    rule.reset();recorder.calls.clear()
+    for _ in range(2):rule.evaluate(1,[z],[p],{1:{'helmet':'not_detected','vest':'not_detected'}},False)
+    assert recorder.calls[-1][6]['not_detected']==['helmet','vest']
+    # Different missing items in successive frames cannot build one false streak.
+    rule.reset();recorder.calls.clear()
+    for i in range(6):rule.evaluate(1,[z],[p],{1:{'helmet':'not_detected' if i%2 else 'detected','vest':'detected' if i%2 else 'not_detected'}},False)
+    assert not recorder.calls
+    outside={**p,'bbox':[.91,.1,.99,.8]}
+    for _ in range(3):assert rule.evaluate(1,[z],[outside],{1:{'helmet':'not_detected','vest':'not_detected'}},False)==[]
+    assert not recorder.calls
+    for _ in range(3):result=rule.evaluate(1,[z],[p],{1:{'helmet':'detected','vest':'detected'}},False)
+    assert result[0]['status']=='compliant' and not recorder.calls
+
+
+def test_recorded_footage_uses_real_inference_and_protects_local_paths(system,monkeypatch):
+    c,app,settings=system
+    detector=app.state.manager.args[1]
+    monkeypatch.setattr(detector,'detect',lambda frame:[person()])
+    detector.names={0:'person',1:'helmet',2:'vest'};detector.model=object()
+    for source in ('../../etc/passwd','/etc/passwd','file:///etc/passwd'):
+        assert c.post('/api/cameras',json={'name':'Invalid','source_type':'video','source':source}).status_code==422
+    assert len(c.get('/api/video-samples').json())==3
+    response=c.post('/api/cameras',json={'name':'Real recording','source_type':'video','source':'worker-zone'})
+    assert response.status_code==201,response.text
+    id=response.json()['id']
+    zone(c,id,type='warning',required_ppe=['helmet','vest'])
+    records=wait_for(lambda:[i for i in c.get('/api/incidents').json() if i['category']=='potential_missing_ppe'])
+    assert records[0]['simulated'] is False and records[0]['evidence']['not_detected']==['helmet','vest']
+    state=c.get(f'/api/cameras/{id}/status').json()
+    assert state['simulated'] is False and state['ppe_assessments'][0]['status']=='missing'
+    assert c.get(f'/api/cameras/{id}/snapshot').content[:2]==b'\xff\xd8'
+    assert c.post('/api/cameras',json={'name':'Duplicate','source_type':'video','source':'worker-zone'}).status_code==409
+
+
+def test_recording_loops_and_inference_survives(system,monkeypatch,tmp_path):
+    c,app,settings=system
+    import cv2
+    import numpy as np
+    clip=tmp_path/'short.avi';writer=cv2.VideoWriter(str(clip),cv2.VideoWriter_fourcc(*'MJPG'),10,(160,120))
+    for value in [30,90,150,210]:writer.write(np.full((120,160,3),value,dtype=np.uint8))
+    writer.release()
+    monkeypatch.setattr('app.video.catalog.video_path',lambda key:clip)
+    response=c.post('/api/cameras',json={'name':'Loop','source_type':'video','source':'walkthrough'})
+    assert response.status_code==201
+    worker=app.state.manager.workers[response.json()['id']]
+    wait_for(lambda:worker.jpeg)
+    wait_for(lambda:worker.capture_epoch>=2)
+    assert worker.state()['status']=='online' and worker.jpeg[:2]==b'\xff\xd8'
+
+
+def test_person_model_fallback_keeps_unmatched_specialist_people(tmp_path,monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    def box(xy):
+        return SimpleNamespace(cls=SimpleNamespace(item=lambda:0),conf=SimpleNamespace(item=lambda:.9),xyxy=[SimpleNamespace(tolist=lambda:xy)])
+    class FakeYOLO:
+        def __init__(self,path,**kwargs): self.ppe='ppe' in path;self.names={0:'Person' if self.ppe else 'person'}
+        def predict(self,*args,**kwargs):return [SimpleNamespace(boxes=[box([10,10,40,90]),box([60,10,90,90])] if self.ppe else [box([10,10,40,90])])]
+    monkeypatch.setitem(sys.modules,'ultralytics',SimpleNamespace(YOLO=FakeYOLO))
+    for name in ['people.pt','ppe.pt']:(tmp_path/name).touch()
+    detector=Detector(Settings(model_path=str(tmp_path/'people.pt'),ppe_model_path=str(tmp_path/'ppe.pt'),fire_model_path=''))
+    detections=detector.detect(SimpleNamespace(shape=(100,100,3)))
+    assert len(detections)==2 and all(d['label']=='person' for d in detections)

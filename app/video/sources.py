@@ -27,13 +27,18 @@ def synthetic(t,camera_id=1):
 def probe(source_type,source,settings):
     """Verify that an actual frame is available before committing a new source."""
     import os
+    if source_type=='video':
+        from .catalog import video_path
+        path=video_path(source)
+        if not path or not path.is_file(): return 'Bundled footage is missing. Restore the assets/videos folder.'
+        source=str(path)
     if source.startswith('env:'):
         source=settings.source_variable(source[4:])
         if not source: return 'The camera environment variable is not configured. Add it to .env and restart.'
     cap=None
     try:
         os.environ.setdefault('OPENCV_FFMPEG_LOGLEVEL','-8')
-        cap=(cv2.VideoCapture(int(source)) if source_type=='usb' else cv2.VideoCapture(source,cv2.CAP_FFMPEG,[cv2.CAP_PROP_OPEN_TIMEOUT_MSEC,3000,cv2.CAP_PROP_READ_TIMEOUT_MSEC,3000]))
+        cap=(cv2.VideoCapture(int(source)) if source_type=='usb' else cv2.VideoCapture(source) if source_type=='video' else cv2.VideoCapture(source,cv2.CAP_FFMPEG,[cv2.CAP_PROP_OPEN_TIMEOUT_MSEC,3000,cv2.CAP_PROP_READ_TIMEOUT_MSEC,3000]))
         ok,frame=cap.read()
         if not ok or frame is None:
             return ('USB camera not found or in use. Check the device number and camera permissions.' if source_type=='usb' else 'Cannot connect to the camera URL. Check the address, credentials and network connection.')

@@ -110,12 +110,14 @@ def create_app(settings=None):
         result['zones']=[record(z) for z in s.scalars(select(Zone).where(Zone.camera_id==c.id)).all()]
         active=s.scalars(select(Incident).where(Incident.camera_id==c.id,Incident.status!='resolved')).all()
         severity=highest([i.severity for i in active])
-        restricted=any(i.category=='restricted_entry' for i in active)
-        major=any(i.severity=='critical' and i.category!='restricted_entry' for i in active)
-        result.update(state=state,alert_severity=severity,alert_color='critical' if major else 'restricted' if restricted else severity)
+        result.update(state=state,alert_severity=severity,alert_color=severity)
         return result
     @app.get('/api/health')
     def health(): return {'status':'ok','version':'1.0.0'}
+    @app.get('/api/video-samples')
+    def video_samples():
+        from .video.catalog import samples
+        return samples()
     @app.get('/api/cameras')
     def cameras():
         with sessions() as s: return [camera_out(s,c) for c in s.scalars(select(Camera)).all()]
